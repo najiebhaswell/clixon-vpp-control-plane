@@ -1,0 +1,4 @@
+#!/bin/bash
+# VPP CLI wrapper
+# Usage: cli or sudo cli
+exec /usr/local/bin/clixon_cli -f /etc/clixon/clixon-vpp.xml "$@"

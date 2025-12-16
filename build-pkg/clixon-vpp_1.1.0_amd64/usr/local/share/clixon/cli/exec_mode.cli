@@ -1,0 +1,18 @@
+# VPP CLI - EXEC Mode (Cisco-style)
+CLICON_MODE="exec";
+CLICON_PROMPT="%H# ";
+CLICON_PLUGIN="vpp_cli";
+
+# Show commands
+show("Show") interface("Interface info") brief("Summary of all interfaces"), cli_show_interfaces();
+show("Show") interface("Interface info") <ifname:string>("Interface name"), cli_show_interface_detail();
+show("Show") bond("Bond/LAG status"), cli_show_bond();
+show("Show") lcp("LCP pairs"), cli_show_lcp();
+show("Show") running-config("Running config"), cli_show_running_config_full();
+
+# Enter config mode
+configure("Enter config mode") terminal("Configure terminal"), cli_set_mode("configure");
+
+# Exit
+quit("Exit"), cli_quit();
+exit("Exit"), cli_quit();

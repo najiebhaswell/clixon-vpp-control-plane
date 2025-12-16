@@ -1,0 +1,11 @@
+CLICON_MODE="basemodel";
+CLICON_PROMPT="%H# ";
+
+show("Show") running-config("Running config"), cli_show_config("running", "text", "/");
+show("Show") configuration("Candidate config"), cli_show_config("candidate", "text", "/");
+
+commit("Commit changes"), cli_commit();
+validate("Validate config"), cli_validate();
+
+quit("Exit CLI"), cli_quit();
+exit("Exit CLI"), cli_quit();

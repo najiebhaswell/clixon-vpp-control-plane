@@ -1,0 +1,67 @@
+# VPP CLI - CONFIGURE Mode (Cisco-style)
+CLICON_MODE="configure";
+CLICON_PROMPT="%H(config)# ";
+CLICON_PLUGIN="vpp_cli";
+
+# =============================================================================
+# ETHERNET - Physical interface configuration (with completion)
+# =============================================================================
+interface("Configure interface") ethernet("Ethernet interface") <ifname:string cli_expand_ethernet()>("Interface name"), cli_interface_select(), cli_set_mode("configure-if");
+
+# =============================================================================
+# BONDING - Bond interface configuration (with completion for existing bonds)
+# =============================================================================
+# Select existing bond
+interface("Configure interface") bonding("Bonding interface") <bondname:string cli_expand_bonds()>("Bond name"), cli_interface_select(), cli_set_mode("configure-if");
+# Create new bond - LACP with load-balance options
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") lacp("LACP 802.3ad") load-balance("Load balance") l2("Layer 2 MAC"), cli_create_bond_named("lacp", "l2"), cli_set_mode("configure-if");
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") lacp("LACP 802.3ad") load-balance("Load balance") l23("Layer 2+3 MAC+IP"), cli_create_bond_named("lacp", "l23"), cli_set_mode("configure-if");
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") lacp("LACP 802.3ad") load-balance("Load balance") l34("Layer 3+4 IP+Port"), cli_create_bond_named("lacp", "l34"), cli_set_mode("configure-if");
+# XOR with load-balance options
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") xor("XOR mode") load-balance("Load balance") l2("Layer 2 MAC"), cli_create_bond_named("xor", "l2"), cli_set_mode("configure-if");
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") xor("XOR mode") load-balance("Load balance") l23("Layer 2+3 MAC+IP"), cli_create_bond_named("xor", "l23"), cli_set_mode("configure-if");
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") xor("XOR mode") load-balance("Load balance") l34("Layer 3+4 IP+Port"), cli_create_bond_named("xor", "l34"), cli_set_mode("configure-if");
+# Modes without load-balance
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") lacp("LACP 802.3ad"), cli_create_bond_named("lacp"), cli_set_mode("configure-if");
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") xor("XOR mode"), cli_create_bond_named("xor"), cli_set_mode("configure-if");
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") active-backup("Active-backup"), cli_create_bond_named("active-backup"), cli_set_mode("configure-if");
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") round-robin("Round-robin"), cli_create_bond_named("round-robin"), cli_set_mode("configure-if");
+interface("Configure interface") bonding("Bonding interface") <bondname:string>("Bond name") mode("Mode") broadcast("Broadcast"), cli_create_bond_named("broadcast"), cli_set_mode("configure-if");
+
+# =============================================================================
+# VLAN - Sub-interface configuration
+# Format: interface vlan <parent> <vlanid> (e.g., interface vlan BondEthernet10 100)
+# =============================================================================
+interface("Configure interface") vlan("VLAN sub-interface") <parent:string cli_expand_interfaces()>("Parent interface") <vlanid:int32 range[1:4094]>("VLAN ID 1-4094"), cli_create_subif_simple(), cli_set_mode("configure-if");
+
+# =============================================================================
+# LOOPBACK - Loopback interface (with completion for existing)
+# =============================================================================
+# Select existing loopback
+interface("Configure interface") loopback("Loopback interface") <loopname:string cli_expand_loopback()>("Loopback name"), cli_interface_select(), cli_set_mode("configure-if");
+# Create new loopback with instance number
+interface("Configure interface") loopback("Loopback interface") <instance:uint32>("Instance number 0-N"), cli_create_loopback_instance(), cli_set_mode("configure-if");
+# Create new loopback (auto-assigned)
+interface("Configure interface") loopback("Loopback interface"), cli_create_loopback(), cli_set_mode("configure-if");
+
+# Delete interface
+no("Negate") interface("Delete interface") <ifname:string>("Interface name"), cli_no_interface();
+
+# Show commands
+show("Show") interface("Interface") brief("Summary"), cli_show_interfaces();
+show("Show") interface("Interface") <ifname:string>("Interface name"), cli_show_interface_detail();
+show("Show") bond("Bond status"), cli_show_bond();
+show("Show") lcp("LCP pairs"), cli_show_lcp();
+show("Show") running-config("Running configuration"), cli_show_running_config_full();
+
+# Datastore for advanced config
+set @datamodel, cli_auto_set();
+delete @datamodel, cli_auto_del();
+
+# Commit and validate
+commit("Commit configuration to datastore"), cli_vpp_commit();
+validate("Validate configuration"), cli_validate();
+
+# Exit - back to base mode
+exit("Exit to exec mode"), cli_set_mode("base");
+end("End configuration mode"), cli_end_confirm(), cli_set_mode("base");

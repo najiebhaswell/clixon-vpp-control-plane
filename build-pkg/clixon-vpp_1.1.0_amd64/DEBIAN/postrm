@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+case "$1" in
+    purge)
+        rm -rf /etc/clixon
+        rm -rf /var/lib/clixon
+        ldconfig
+        systemctl daemon-reload || true
+        ;;
+    remove|upgrade)
+        ldconfig
+        ;;
+esac
+exit 0

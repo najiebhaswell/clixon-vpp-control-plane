@@ -1752,6 +1752,48 @@ int cli_if_channel_group(clixon_handle h, cvec *cvv, cvec *argv) {
   return -1;
 }
 
+/* Add member interface to current bond (when in BondEthernet context) */
+int cli_bond_add_member(clixon_handle h, cvec *cvv, cvec *argv) {
+  (void)h;
+  (void)argv;
+
+  /* Check if we're in a bond interface */
+  if (strlen(current_interface) == 0 ||
+      strncmp(current_interface, "BondEthernet", 12) != 0) {
+    fprintf(stderr, "Error: Not in a bond interface context\n");
+    fprintf(stderr, "Use 'interface bonding <name>' first\n");
+    return -1;
+  }
+
+  cg_var *cv = cvec_find(cvv, "member");
+  if (!cv) {
+    fprintf(stderr, "Error: Member interface required\n");
+    return -1;
+  }
+
+  const char *member_if = cv_string_get(cv);
+  char cmd[256];
+  char output[1024];
+
+  /* Enable the member interface first */
+  snprintf(cmd, sizeof(cmd), "set interface state %s up", member_if);
+  vpp_exec(cmd, output, sizeof(output));
+
+  /* Add to bond */
+  snprintf(cmd, sizeof(cmd), "bond add %s %s", current_interface, member_if);
+
+  if (vpp_exec(cmd, output, sizeof(output)) == 0) {
+    fprintf(stdout, "[%s] Added member %s\n", current_interface, member_if);
+    /* Save to config */
+    ds_add_bond_member(current_interface, member_if);
+    CONFIG_CHANGED();
+    return 0;
+  }
+
+  fprintf(stderr, "Failed to add member: %s\n", output);
+  return -1;
+}
+
 /* Create VLAN sub-interface from current interface */
 int cli_if_vlan(clixon_handle h, cvec *cvv, cvec *argv) {
   (void)h;

@@ -1,0 +1,21 @@
+# VPP CLI - Base/Exec Mode (Cisco-style)
+CLICON_MODE="base";
+CLICON_PROMPT="%H# ";
+CLICON_PLUGIN="vpp_cli";
+
+# Configure mode entry - both styles for compatibility
+configure("Configure") terminal("Enter configuration mode"), cli_set_mode("configure");
+configure("Configure"), cli_set_mode("configure");
+
+# Show commands
+show("Show"), cli_show_config("running", "text", "/");
+show("Show") configuration("Candidate configuration"), cli_show_config("candidate", "text", "/");
+show("Show") running-config("Running configuration"), cli_show_config("running", "text", "/");
+show("Show") interface("Interface") brief("Summary"), cli_show_interfaces();
+show("Show") interface("Interface") <ifname:string>("Interface name"), cli_show_interface_detail();
+show("Show") bond("Bond interfaces"), cli_show_bond();
+show("Show") lcp("LCP pairs"), cli_show_lcp();
+
+# Exit CLI
+quit("Quit CLI"), cli_quit();
+exit("Exit CLI"), cli_quit();

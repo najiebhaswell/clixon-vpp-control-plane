@@ -1,0 +1,5 @@
+CLICON_MODE="configure";
+CLICON_PROMPT="%H(config)# ";
+CLICON_PLUGIN="vpp_cli";
+
+testvlan("Test VLAN") <num:int32>("Number"), cli_validate();
