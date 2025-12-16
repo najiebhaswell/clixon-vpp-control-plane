@@ -26,6 +26,10 @@ case "$1" in
         # Reload systemd
         systemctl daemon-reload || true
         
+        # Enable and start netns-dataplane (required for LCP)
+        systemctl enable netns-dataplane.service 2>/dev/null || true
+        systemctl start netns-dataplane.service 2>/dev/null || true
+        
         echo ""
         echo "=============================================="
         echo "  clixon-vpp installed successfully!"
@@ -36,7 +40,7 @@ case "$1" in
         echo "  sudo systemctl start clixon-vpp-restconf"
         echo ""
         echo "To enable on boot:"
-        echo "  sudo systemctl enable clixon-vpp-backend clixon-vpp-restconf"
+        echo "  sudo systemctl enable netns-dataplane clixon-vpp-backend clixon-vpp-restconf"
         echo ""
         echo "CLI (use either):"
         echo "  cli"

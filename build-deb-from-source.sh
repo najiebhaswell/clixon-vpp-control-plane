@@ -315,7 +315,38 @@ EOFSVC
 ExecStartPost=-/bin/bash -c '(sleep 90 && systemctl restart clixon-vpp-backend) &'
 EOFDROP
 
-    log_info "Systemd services created (including VPP drop-in)"
+    # Netns dataplane service (required for LCP)
+    if [ -f "${SCRIPT_DIR}/systemd/netns-dataplane.service" ]; then
+        cp "${SCRIPT_DIR}/systemd/netns-dataplane.service" "${STAGING_DIR}/etc/systemd/system/"
+    else
+        cat > "${STAGING_DIR}/etc/systemd/system/netns-dataplane.service" << 'EOFNS'
+[Unit]
+Description=Dataplane network namespace
+After=systemd-sysctl.service network-pre.target
+Before=vpp.service network.target network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+PrivateNetwork=yes
+
+ExecStartPre=-/usr/bin/echo "Creating dataplane network namespace"
+ExecStart=-/usr/sbin/ip netns delete dataplane
+ExecStart=-/usr/bin/mkdir -p /etc/netns/dataplane
+ExecStart=-/usr/bin/touch /etc/netns/dataplane/resolv.conf
+ExecStart=-/usr/sbin/ip netns add dataplane
+ExecStart=-/usr/bin/umount /var/run/netns/dataplane
+ExecStart=-/usr/bin/mount --bind /proc/self/ns/net /var/run/netns/dataplane
+ExecStart=-/usr/sbin/ip netns exec dataplane /usr/lib/systemd/systemd-sysctl
+ExecStop=-/usr/sbin/ip netns delete dataplane
+
+[Install]
+WantedBy=multi-user.target
+WantedBy=vpp.service
+EOFNS
+    fi
+
+    log_info "Systemd services created (including VPP drop-in and netns-dataplane)"
 }
 
 copy_scripts() {
@@ -402,6 +433,10 @@ case "$1" in
         # Reload systemd
         systemctl daemon-reload || true
         
+        # Enable and start netns-dataplane (required for LCP)
+        systemctl enable netns-dataplane.service 2>/dev/null || true
+        systemctl start netns-dataplane.service 2>/dev/null || true
+        
         echo ""
         echo "=============================================="
         echo "  clixon-vpp installed successfully!"
@@ -412,7 +447,7 @@ case "$1" in
         echo "  sudo systemctl start clixon-vpp-restconf"
         echo ""
         echo "To enable on boot:"
-        echo "  sudo systemctl enable clixon-vpp-backend clixon-vpp-restconf"
+        echo "  sudo systemctl enable netns-dataplane clixon-vpp-backend clixon-vpp-restconf"
         echo ""
         echo "CLI (use either):"
         echo "  cli"
@@ -468,6 +503,7 @@ EOFPOSTRM
 /etc/systemd/system/clixon-vpp-backend.service
 /etc/systemd/system/clixon-vpp-restconf.service
 /etc/systemd/system/vpp.service.d/restart-clixon.conf
+/etc/systemd/system/netns-dataplane.service
 EOFCONF
 
     log_info "DEBIAN control files created"
