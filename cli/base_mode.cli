@@ -1,0 +1,11 @@
+CLICON_MODE="base";
+CLICON_PROMPT="%H# ";
+
+show("Show"), cli_show_config("running", "text", "/");
+show("Show") configuration("Configuration"), cli_show_config("candidate", "text", "/");  
+show("Show") running-config("Running config"), cli_show_config("running", "text", "/");
+
+configure("Configure"), cli_set_mode("configure");
+
+quit("Quit"), cli_quit();
+exit("Exit"), cli_quit();

@@ -1,0 +1,129 @@
+#!/bin/bash
+#
+# VPP CLI Wrapper - Simplified Cisco-style commands
+#
+
+CLIXON_CLI="sudo clixon_cli -f /etc/clixon/clixon-vpp.xml"
+
+# Check if backend is running
+check_backend() {
+    if ! pgrep -x clixon_backend > /dev/null; then
+        echo "Error: clixon_backend not running"
+        echo "Start with: sudo /usr/local/sbin/clixon_backend -f /etc/clixon/clixon-vpp.xml -l s &"
+        exit 1
+    fi
+}
+
+# Show running config
+show_running() {
+    $CLIXON_CLI -1 "show running-config"
+}
+
+# Show candidate config  
+show_config() {
+    $CLIXON_CLI -1 "show configuration"
+}
+
+# Set interface description
+# Usage: set_interface loop0 description "Test"
+set_interface() {
+    local ifname="$1"
+    local cmd="$2"
+    shift 2
+    
+    case "$cmd" in
+        description)
+            $CLIXON_CLI -1 "set interfaces interface $ifname description \"$*\""
+            ;;
+        enabled)
+            $CLIXON_CLI -1 "set interfaces interface $ifname enabled $1"
+            ;;
+        mtu)
+            $CLIXON_CLI -1 "set interfaces interface $ifname mtu $1"
+            ;;
+        ip)
+            # ip address 10.0.0.1/24
+            local addr="$2"
+            # TODO: Parse IP and prefix
+            echo "IP configuration via NETCONF recommended"
+            ;;
+        *)
+            echo "Unknown command: $cmd"
+            echo "Usage: set_interface <name> {description|enabled|mtu} <value>"
+            ;;
+    esac
+}
+
+# Commit changes
+do_commit() {
+    $CLIXON_CLI -1 "commit"
+}
+
+# Validate
+do_validate() {
+    $CLIXON_CLI -1 "validate"
+}
+
+# Interactive mode
+interactive() {
+    check_backend
+    
+    echo "========================================"
+    echo "VPP Control Plane - Simplified CLI"
+    echo "========================================"
+    echo ""
+    
+    $CLIXON_CLI
+}
+
+# Command-line mode
+if [ $# -eq 0 ]; then
+    # No arguments - interactive
+    interactive
+else
+    check_backend
+    
+    case "$1" in
+        show)
+            shift
+            case "$1" in
+                running-config|running)
+                    show_running
+                    ;;
+                configuration|config)
+                    show_config
+                    ;;
+                *)
+                    echo "Usage: $0 show {running-config|configuration}"
+                    ;;
+            esac
+            ;;
+        set)
+            shift
+            if [ "$1" = "interface" ]; then
+                shift
+                set_interface "$@"
+            else
+                echo "Usage: $0 set interface <name> <command> <args>"
+            fi
+            ;;
+        commit)
+            do_commit
+            ;;
+        validate)
+            do_validate
+            ;;
+        *)
+            echo "Usage: $0 {show|set|commit|validate}"
+            echo "  show running-config    - Show running configuration"
+            echo "  show configuration     - Show candidate configuration"
+            echo "  set interface <name> description <text>"
+            echo "  set interface <name> enabled {true|false}"
+            echo "  set interface <name> mtu <value>"
+            echo "  commit                 - Commit candidate to running"
+            echo "  validate               - Validate configuration"
+            echo ""
+            echo "Run without arguments for interactive mode"
+            ;;
+    esac
+fi

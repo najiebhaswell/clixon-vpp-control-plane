@@ -1,0 +1,66 @@
+# VPP Control Plane - Cisco-style CLI Specification
+# Multiple modes: base, configure, configure-if
+
+# ==================== BASE MODE (EXEC) ====================
+CLICON_MODE="base";
+CLICON_PROMPT="%H> ";
+CLICON_PLUGIN="vpp_cli";
+
+# Show commands in exec mode
+show("Show") interfaces("Interface status"), cli_show_interfaces_summary();
+show("Show") interface("Interface") <ifname:string>("Interface name"), cli_show_interface_detail("ifname");
+show("Show") running-config("Running configuration"), cli_show_running_config();
+show("Show") configuration("Candidate configuration"), cli_show_config("candidate", "text", "/");
+
+# Enter configuration mode
+configure("Enter configuration mode") terminal("Configure from terminal"), cli_set_mode("configure");
+
+# Exit
+quit("Exit CLI"), cli_quit();
+exit("Exit CLI"), cli_quit();
+
+# ==================== CONFIGURE MODE ====================
+CLICON_MODE="configure";
+CLICON_PROMPT="%H(config)# ";
+CLICON_PLUGIN="vpp_cli";
+
+# Interface configuration
+interface("Configure interface") <ifname:string>("Interface name"), cli_config_interface("ifname"), cli_set_mode("configure-if");
+
+# Set global config using autocli
+set @datamodel, cli_auto_set();
+merge @datamodel, cli_auto_merge();
+delete @datamodel, cli_auto_del();
+
+# Show commands also available in config mode
+show("Show") running-config("Running configuration"), cli_show_running_config();
+show("Show") configuration("Candidate configuration"), cli_show_config("candidate", "text", "/");
+
+# Commit and validate
+commit("Commit configuration"), cli_commit();
+validate("Validate configuration"), cli_validate();
+
+# Exit to exec mode
+exit("Exit to exec mode"), cli_set_mode("base");
+end("Exit to exec mode"), cli_set_mode("base");
+
+# ==================== CONFIGURE-IF MODE ====================
+CLICON_MODE="configure-if";
+CLICON_PROMPT="%H(config-if)# ";
+CLICON_PLUGIN="vpp_cli";
+
+# Interface commands (simpler Cisco-style)
+description("Set description") <desc:string>("Description text"), cli_interface_description("desc");
+mtu("Set MTU") <mtu:uint16 range[64:9216]>("MTU value"), cli_interface_mtu("mtu");
+shutdown("Disable interface"), cli_interface_shutdown();
+no("Negate command") shutdown("Enable interface"), cli_interface_no_shutdown();
+
+ip("IP configuration") address("Set IP address") <ip:ipv4addr>("IP address") <prefix:uint8 range[0:32]>("Prefix length"), cli_interface_ipv4("ip", "prefix");
+no("Negate") ip("IP configuration") address("Remove IP address") <ip:ipv4addr>("IP address") <prefix:uint8>("Prefix length"), cli_interface_no_ipv4("ip", "prefix");
+
+ipv6("IPv6 configuration") address("Set IPv6 address") <ip:ipv6addr>("IPv6 address") <prefix:uint8 range[0:128]>("Prefix length"), cli_interface_ipv6("ip", "prefix");
+no("Negate") ipv6("IPv6 configuration") address("Remove IPv6 address") <ip:ipv6addr>("IPv6 address") <prefix:uint8>("Prefix length"), cli_interface_no_ipv6("ip", "prefix");
+
+# Exit interface mode
+exit("Exit to config mode"), cli_set_mode("configure");
+end("Exit to exec mode"), cli_set_mode("base");

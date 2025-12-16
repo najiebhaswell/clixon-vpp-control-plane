@@ -1,0 +1,9 @@
+<clixon-config xmlns="http://clicon.org/config">
+  <autocli>
+     <module-default>true</module-default>
+     <list-keyword-default>kw-nokey</list-keyword-default>
+     <treeref-state-default>false</treeref-state-default>
+     <edit-mode-default>list container</edit-mode-default>
+     <completion-default>true</completion-default>
+  </autocli>
+</clixon-config>
