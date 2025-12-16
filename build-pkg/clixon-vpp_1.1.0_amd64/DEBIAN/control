@@ -3,7 +3,7 @@ Version: 1.1.0
 Section: admin
 Priority: optional
 Architecture: amd64
-Installed-Size: 3104
+Installed-Size: 3112
 Depends: libc6, libnghttp2-14, libssl3, libcurl4, libxml2, libpcre2-8-0, libsystemd0
 Provides: clixon
 Conflicts: clixon

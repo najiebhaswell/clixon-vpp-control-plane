@@ -307,7 +307,15 @@ Group=clixon
 WantedBy=multi-user.target
 EOFSVC
 
-    log_info "Systemd services created"
+    # VPP drop-in to restart Clixon after VPP restart
+    mkdir -p "${STAGING_DIR}/etc/systemd/system/vpp.service.d"
+    cat > "${STAGING_DIR}/etc/systemd/system/vpp.service.d/restart-clixon.conf" << 'EOFDROP'
+[Service]
+# Restart Clixon in background after VPP starts (wait 90s for full VPP init)
+ExecStartPost=-/bin/bash -c '(sleep 90 && systemctl restart clixon-vpp-backend) &'
+EOFDROP
+
+    log_info "Systemd services created (including VPP drop-in)"
 }
 
 copy_scripts() {
@@ -459,6 +467,7 @@ EOFPOSTRM
 /etc/clixon/clixon-vpp.xml
 /etc/systemd/system/clixon-vpp-backend.service
 /etc/systemd/system/clixon-vpp-restconf.service
+/etc/systemd/system/vpp.service.d/restart-clixon.conf
 EOFCONF
 
     log_info "DEBIAN control files created"

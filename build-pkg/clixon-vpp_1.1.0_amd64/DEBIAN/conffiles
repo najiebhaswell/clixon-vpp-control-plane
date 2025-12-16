@@ -1,3 +1,4 @@
 /etc/clixon/clixon-vpp.xml
 /etc/systemd/system/clixon-vpp-backend.service
 /etc/systemd/system/clixon-vpp-restconf.service
+/etc/systemd/system/vpp.service.d/restart-clixon.conf
