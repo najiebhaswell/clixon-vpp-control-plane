@@ -7,6 +7,7 @@
 #define VPP_API_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Bond information structure */
@@ -65,5 +66,56 @@ const char *vpp_bond_mode_str(uint8_t mode);
 
 /* Convert load balance number to string */
 const char *vpp_lb_mode_str(uint8_t lb);
+
+/* Get interface index by name */
+int vpp_api_get_interface_index(const char *ifname);
+
+/* ====== CLI WRAPPER FUNCTIONS ====== */
+
+/* Create bond interface */
+int vpp_cli_create_bond(const char *mode, const char *lb, uint32_t id,
+                        char *bondname_out, size_t bondname_len);
+
+/* Set interface state */
+int vpp_cli_set_interface_state(const char *ifname, int is_up);
+
+/* Set interface MTU */
+int vpp_cli_set_interface_mtu(const char *ifname, uint32_t mtu);
+
+/* Add IP address */
+int vpp_cli_add_ip_address(const char *ifname, const char *address);
+
+/* Delete IP address */
+int vpp_cli_del_ip_address(const char *ifname, const char *address);
+
+/* Create sub-interface (VLAN) */
+int vpp_cli_create_subif(const char *parent, uint32_t vlan_id, char *subif_out,
+                         size_t subif_len);
+
+/* Delete sub-interface */
+int vpp_cli_delete_subif(const char *subif);
+
+/* Create loopback interface */
+int vpp_cli_create_loopback(char *loopback_out, size_t loopback_len);
+
+/* Create loopback with MAC */
+int vpp_cli_create_loopback_mac(const char *mac_addr, char *loopback_out,
+                                size_t loopback_len);
+
+/* Delete loopback interface */
+int vpp_cli_delete_loopback(const char *loopback);
+
+/* Add member to bond */
+int vpp_cli_bond_add_member(const char *bond, const char *member);
+
+/* Remove member from bond */
+int vpp_cli_bond_remove_member(const char *bond, const char *member);
+
+/* Create LCP interface pair */
+int vpp_cli_create_lcp(const char *vpp_if, const char *host_if,
+                       const char *netns);
+
+/* Delete LCP interface pair */
+int vpp_cli_delete_lcp(const char *vpp_if);
 
 #endif /* VPP_API_H */

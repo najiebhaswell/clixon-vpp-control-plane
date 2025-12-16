@@ -1,0 +1,179 @@
+module vpp-lcp {
+    yang-version 1.1;
+    namespace "http://example.com/vpp/lcp";
+    prefix vpp-lcp;
+
+    import vpp-interfaces {
+        prefix vpp-if;
+    }
+
+    organization "Example Organization";
+    contact "admin@example.com";
+    description
+        "YANG module for VPP Linux Control Plane (LCP) interface pairs.
+         LCP allows creating Linux TAP/TUN interfaces that mirror VPP interfaces,
+         enabling Linux to participate in control plane operations.";
+
+    revision 2025-12-12 {
+        description "Initial revision for VPP 25.06";
+    }
+
+    /*
+     * Typedefs
+     */
+    typedef lcp-host-interface-type {
+        type enumeration {
+            enum tap {
+                value 0;
+                description "TAP interface (for multi-point)";
+            }
+            enum tun {
+                value 1;
+                description "TUN interface (for point-to-point)";
+            }
+        }
+        default tap;
+        description "Type of Linux host interface to create";
+    }
+
+    typedef netns-ref {
+        type string {
+            length "1..63";
+            pattern '[a-zA-Z][a-zA-Z0-9_-]*';
+        }
+        description "Reference to a Linux network namespace name";
+    }
+
+    /*
+     * Configuration
+     */
+    container lcp {
+        description "Linux Control Plane configuration";
+
+        leaf default-netns {
+            type netns-ref;
+            description
+                "Default network namespace for new LCP interfaces.
+                 If not set, interfaces are created in the default namespace.";
+        }
+
+        leaf auto-create {
+            type boolean;
+            default false;
+            description
+                "When enabled, automatically create LCP pairs for
+                 physical interfaces detected by VPP.";
+        }
+
+        container interface-pairs {
+            description "LCP interface pair configuration";
+
+            list pair {
+                key "phy-interface";
+                description "LCP interface pair mapping VPP to Linux";
+
+                leaf phy-interface {
+                    type string {
+                        length "1..64";
+                    }
+                    description
+                        "VPP physical/sub-interface name.
+                         Example: GigabitEthernet0/8/0 or GigabitEthernet0/8/0.100";
+                }
+
+                leaf host-interface {
+                    type string {
+                        length "1..15";  // Linux IFNAMSIZ - 1
+                    }
+                    description
+                        "Linux host interface name (TAP/TUN).
+                         Example: eth0, vpp0
+                         Maximum 15 characters due to Linux limitation.";
+                }
+
+                leaf host-interface-type {
+                    type lcp-host-interface-type;
+                    default tap;
+                    description "Type of host interface to create";
+                }
+
+                leaf netns {
+                    type netns-ref;
+                    description
+                        "Network namespace for this interface.
+                         If not set, uses default-netns or root namespace.";
+                }
+
+                /*
+                 * Operational state
+                 */
+                leaf phy-sw-if-index {
+                    type uint32;
+                    config false;
+                    description "VPP sw_if_index of physical interface";
+                }
+
+                leaf host-sw-if-index {
+                    type uint32;
+                    config false;
+                    description "VPP sw_if_index of TAP/TUN interface";
+                }
+
+                leaf host-if-index {
+                    type uint32;
+                    config false;
+                    description "Linux interface index (from kernel)";
+                }
+
+                leaf oper-status {
+                    type enumeration {
+                        enum up { description "Pair is operational"; }
+                        enum down { description "Pair is not operational"; }
+                        enum error { description "Error creating pair"; }
+                    }
+                    config false;
+                    description "Operational status of LCP pair";
+                }
+            }
+        }
+    }
+
+    /*
+     * RPCs
+     */
+    rpc lcp-sync-from-linux {
+        description
+            "Synchronize interface configuration from Linux to VPP.
+             This reads IP addresses, routes, and neighbor entries from
+             the Linux host interfaces and applies them to VPP.";
+        output {
+            leaf result {
+                type boolean;
+                description "true if synchronization was successful";
+            }
+            leaf synced-addresses {
+                type uint32;
+                description "Number of IP addresses synchronized";
+            }
+            leaf synced-routes {
+                type uint32;
+                description "Number of routes synchronized";
+            }
+        }
+    }
+
+    rpc lcp-default-netns {
+        description "Set the default network namespace for LCP interfaces";
+        input {
+            leaf netns {
+                type netns-ref;
+                description "Network namespace name";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+            }
+        }
+    }
+}

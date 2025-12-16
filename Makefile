@@ -35,7 +35,8 @@ ALL_LIBS = $(CLIXON_LIBS) $(VPP_LIBS) -lpthread
 # Source files
 SRCS = src/vpp_plugin.c \
        src/vpp_connection.c \
-       src/vpp_interface.c
+       src/vpp_interface.c \
+       src/vpp_api.c
 
 # Object files
 OBJS = $(SRCS:.c=.o)
@@ -44,8 +45,8 @@ OBJS = $(SRCS:.c=.o)
 PLUGIN = vpp_plugin.so
 CLI_PLUGIN = vpp_cli_plugin.so
 
-# CLI source
-CLI_SRCS = src/vpp_cli_plugin.c
+# CLI source - needs vpp_connection.c for CLI socket functions
+CLI_SRCS = src/vpp_cli_plugin.c src/vpp_api.c src/vpp_connection.c
 CLI_OBJS = $(CLI_SRCS:.c=.o)
 
 # Install directories
@@ -75,9 +76,11 @@ $(CLI_PLUGIN): $(CLI_OBJS)
 	$(CC) $(ALL_CFLAGS) -c $< -o $@
 
 # Dependency header generation
-src/vpp_plugin.o: src/vpp_connection.h src/vpp_interface.h
+src/vpp_plugin.o: src/vpp_connection.h src/vpp_interface.h src/vpp_api.h
 src/vpp_connection.o: src/vpp_connection.h
 src/vpp_interface.o: src/vpp_interface.h src/vpp_connection.h
+src/vpp_api.o: src/vpp_api.h src/vpp_connection.h
+src/vpp_cli_plugin.o: src/vpp_api.h
 
 check-deps:
 	@echo "Checking dependencies..."

@@ -1,0 +1,48 @@
+# VPP CLI - Interface Config Mode (Cisco-style)
+CLICON_MODE="configure-if";
+CLICON_PROMPT="%H(config-if)# ";
+CLICON_PLUGIN="vpp_cli";
+
+# Cisco IOS style commands
+description("Set description") <desc:rest>("Description"), cli_if_description();
+mtu("Set MTU") <mtu:int32 range[64:9216]>("MTU value"), cli_if_mtu();
+shutdown("Disable interface"), cli_if_shutdown();
+
+# IP address commands
+ip("IP config") address("Set IP") <ip:ipv4addr>("IPv4 address") <prefix:int32 range[0:32]>("Prefix"), cli_if_ip_address();
+ipv6("IPv6 config") address("Set IPv6") <ip:ipv6addr>("IPv6 address") <prefix:int32 range[0:128]>("Prefix"), cli_if_ipv6_address();
+
+# Bonding
+channel-group("Join bond") <bondid:int32>("Bond number"), cli_if_channel_group();
+
+# VLAN Sub-interface
+vlan("Create VLAN sub-interface") <vlan:int32>("VLAN ID"), cli_if_vlan();
+
+# LCP (Linux Control Plane)
+lcp("LCP") host-if("Linux interface") <hostif:string>("Linux name") netns("Network namespace") <netns:string>("Namespace name"), cli_if_lcp_netns();
+lcp("LCP") host-if("Linux interface") <hostif:string>("Linux name"), cli_if_lcp();
+
+# Negation commands (no ...)
+no("Negate") shutdown("Enable interface"), cli_if_no_shutdown();
+no("Negate") ip("IP") address("Remove IP") <ip:ipv4addr>("IPv4 address") <prefix:int32>("Prefix"), cli_if_no_ip_address();
+no("Negate") ip("IP") address("Remove all IPs"), cli_if_no_ip_address_all();
+no("Negate") ipv6("IPv6") address("Remove IPv6") <ip:ipv6addr>("IPv6 address") <prefix:int32>("Prefix"), cli_if_no_ipv6_address();
+no("Negate") channel-group("Remove from bond"), cli_if_no_channel_group();
+no("Negate") lcp("Remove LCP"), cli_if_no_lcp();
+
+# Show commands
+show("Show") interface("Interface") brief("Summary"), cli_show_interfaces();
+show("Show") interface("Interface") <ifname:string>("Interface name"), cli_show_interface_detail();
+show("Show") bond("Bond status"), cli_show_bond();
+show("Show") lcp("LCP pairs"), cli_show_lcp();
+show("Show") running-config("Running configuration"), cli_show_config("running", "text", "/");
+
+# Commit/validate
+commit("Commit configuration to datastore"), cli_vpp_commit();
+validate("Validate configuration"), cli_validate();
+
+# Exit - back to configure mode
+exit("Exit to config mode"), cli_if_exit(), cli_set_mode("configure");
+
+# End - back to base mode  
+end("End - return to exec mode"), cli_if_exit(), cli_set_mode("base");

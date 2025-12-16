@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example VPP Configuration - Simple Single Interfaces
+  
+  This example demonstrates:
+  1. Basic physical interface configuration
+  2. IPv4 and IPv6 addressing
+  3. Interface MTU and description
+  
+  Load with: ./restconf-config-loader.sh example-simple.xml
+-->
+<config xmlns:if="http://example.com/vpp/interfaces">
+  
+  <if:interfaces>
+    
+    <!-- GigabitEthernet interface with IPv4 -->
+    <if:interface>
+      <if:name>GigabitEthernet0/0/0</if:name>
+      <if:enabled>true</if:enabled>
+      <if:mtu>1500</if:mtu>
+      <if:ipv4-address>
+        <if:address>192.168.1.10</if:address>
+        <if:prefix-length>24</if:prefix-length>
+      </if:ipv4-address>
+      <if:description>Uplink Interface</if:description>
+    </if:interface>
+    
+    <!-- GigabitEthernet interface with IPv6 -->
+    <if:interface>
+      <if:name>GigabitEthernet0/0/1</if:name>
+      <if:enabled>true</if:enabled>
+      <if:mtu>1500</if:mtu>
+      <if:ipv6-address>
+        <if:address>2001:db8::1</if:address>
+        <if:prefix-length>64</if:prefix-length>
+      </if:ipv6-address>
+      <if:description>IPv6 Interface</if:description>
+    </if:interface>
+    
+    <!-- Interface without IP (data plane only) -->
+    <if:interface>
+      <if:name>GigabitEthernet0/0/2</if:name>
+      <if:enabled>true</if:enabled>
+      <if:mtu>9000</if:mtu>
+      <if:description>Data Plane Interface</if:description>
+    </if:interface>
+    
+    <!-- Disabled interface -->
+    <if:interface>
+      <if:name>GigabitEthernet0/0/3</if:name>
+      <if:enabled>false</if:enabled>
+      <if:description>Unused Interface</if:description>
+    </if:interface>
+    
+  </if:interfaces>
+  
+</config>

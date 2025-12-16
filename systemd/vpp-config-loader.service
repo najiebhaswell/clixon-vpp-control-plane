@@ -1,16 +1,14 @@
 [Unit]
-Description=VPP Configuration Loader
-Documentation=https://github.com/clixon/clixon
-After=vpp.service clixon-backend.service
-Wants=vpp.service
-Requires=vpp.service
+Description=VPP Config Loader
+After=vpp.service clixon-vpp-backend.service clixon-vpp-restconf.service
+Wants=clixon-vpp-backend.service
+ConditionFileExists=/var/lib/clixon/vpp/vpp_config.xml
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/vpp-config-loader.sh
 RemainAfterExit=yes
-StandardOutput=journal
-StandardError=journal
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/local/bin/vpp-config-loader.sh
 
 [Install]
 WantedBy=multi-user.target

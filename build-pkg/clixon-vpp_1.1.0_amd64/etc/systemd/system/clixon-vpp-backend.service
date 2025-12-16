@@ -1,0 +1,18 @@
+[Unit]
+Description=Clixon VPP Backend Daemon
+Documentation=https://clixon-docs.readthedocs.io/
+After=network.target vpp.service
+Wants=vpp.service
+
+[Service]
+Type=forking
+ExecStart=/usr/local/sbin/clixon_backend -f /etc/clixon/clixon-vpp.xml -s running
+ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/var/run/clixon-vpp.pid
+Restart=on-failure
+RestartSec=5
+User=root
+Group=clixon
+
+[Install]
+WantedBy=multi-user.target

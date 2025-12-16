@@ -1,0 +1,609 @@
+module vpp-interfaces {
+    yang-version 1.1;
+    namespace "http://example.com/vpp/interfaces";
+    prefix vpp-if;
+
+    import ietf-inet-types {
+        prefix inet;
+    }
+
+    organization "Example Organization";
+    contact "admin@example.com";
+    description
+        "YANG module for VPP interface configuration and operational state.
+         This module is designed to work with VPP 25.06 via Clixon backend plugin.";
+
+    revision 2025-12-12 {
+        description "Initial revision for VPP 25.06";
+    }
+
+    /*
+     * Typedefs
+     */
+    typedef interface-ref {
+        type leafref {
+            path "/vpp-if:interfaces/vpp-if:interface/vpp-if:name";
+        }
+        description "Reference to an interface name";
+    }
+
+    typedef if-index {
+        type uint32;
+        description "VPP software interface index (sw_if_index)";
+    }
+
+    /*
+     * Groupings
+     */
+    grouping interface-statistics {
+        description "Interface statistics from VPP";
+        
+        leaf rx-packets {
+            type uint64;
+            config false;
+            description "Number of received packets";
+        }
+        leaf rx-bytes {
+            type uint64;
+            config false;
+            description "Number of received bytes";
+        }
+        leaf tx-packets {
+            type uint64;
+            config false;
+            description "Number of transmitted packets";
+        }
+        leaf tx-bytes {
+            type uint64;
+            config false;
+            description "Number of transmitted bytes";
+        }
+        leaf rx-errors {
+            type uint64;
+            config false;
+            description "Number of receive errors";
+        }
+        leaf tx-errors {
+            type uint64;
+            config false;
+            description "Number of transmit errors";
+        }
+        leaf drops {
+            type uint64;
+            config false;
+            description "Number of dropped packets";
+        }
+    }
+
+    grouping ipv4-address-config {
+        description "IPv4 address configuration";
+        
+        list address {
+            key "ip";
+            description "List of IPv4 addresses";
+            
+            leaf ip {
+                type inet:ipv4-address;
+                description "IPv4 address";
+            }
+            leaf prefix-length {
+                type uint8 {
+                    range "0..32";
+                }
+                mandatory true;
+                description "IPv4 prefix length";
+            }
+        }
+    }
+
+    grouping ipv6-address-config {
+        description "IPv6 address configuration";
+        
+        list address {
+            key "ip";
+            description "List of IPv6 addresses";
+            
+            leaf ip {
+                type inet:ipv6-address;
+                description "IPv6 address";
+            }
+            leaf prefix-length {
+                type uint8 {
+                    range "0..128";
+                }
+                mandatory true;
+                description "IPv6 prefix length";
+            }
+        }
+    }
+
+    /*
+     * Configuration Data
+     */
+    container interfaces {
+        description "VPP interface configuration and state";
+
+        list interface {
+            key "name";
+            description "List of VPP interfaces";
+
+            leaf name {
+                type string {
+                    length "1..64";
+                }
+                description 
+                    "Interface name as known to VPP.
+                     Examples: GigabitEthernet0/8/0, loop0, tap0";
+            }
+
+            leaf description {
+                type string {
+                    length "0..256";
+                }
+                description "User-defined interface description";
+            }
+
+            leaf type {
+                type enumeration {
+                    enum ethernet {
+                        description "Physical Ethernet interface";
+                    }
+                    enum loopback {
+                        description "Loopback interface";
+                    }
+                    enum tap {
+                        description "TAP interface";
+                    }
+                    enum vxlan {
+                        description "VXLAN tunnel interface";
+                    }
+                    enum sub-interface {
+                        description "VLAN sub-interface";
+                    }
+                    enum host {
+                        description "Host interface (AF_PACKET)";
+                    }
+                    enum memif {
+                        description "Memory interface (memif)";
+                    }
+                    enum bond {
+                        description "Bond/LAG interface";
+                    }
+                    enum unknown {
+                        description "Unknown interface type";
+                    }
+                }
+                config false;
+                description "Interface type (read from VPP)";
+            }
+
+            leaf enabled {
+                type boolean;
+                default false;
+                description 
+                    "Administrative status. 
+                     true = admin up, false = admin down";
+            }
+
+            leaf mtu {
+                type uint16 {
+                    range "64..9216";
+                }
+                default 1500;
+                description "Maximum Transmission Unit (MTU) in bytes";
+            }
+
+            leaf mac-address {
+                type string {
+                    pattern '[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}';
+                }
+                description "MAC address (format: xx:xx:xx:xx:xx:xx)";
+            }
+
+            /*
+             * Operational State (read-only)
+             */
+            leaf sw-if-index {
+                type if-index;
+                config false;
+                description "VPP software interface index";
+            }
+
+            leaf oper-status {
+                type enumeration {
+                    enum up {
+                        description "Interface is operationally up";
+                    }
+                    enum down {
+                        description "Interface is operationally down";
+                    }
+                    enum unknown {
+                        description "Operational status unknown";
+                    }
+                }
+                config false;
+                description "Operational status from VPP";
+            }
+
+            leaf link-speed {
+                type uint32;
+                units "Mbps";
+                config false;
+                description "Current link speed in Mbps";
+            }
+
+            leaf link-duplex {
+                type enumeration {
+                    enum full {
+                        description "Full duplex";
+                    }
+                    enum half {
+                        description "Half duplex";
+                    }
+                    enum unknown {
+                        description "Unknown duplex";
+                    }
+                }
+                config false;
+                description "Link duplex mode";
+            }
+
+            /*
+             * IPv4 Configuration
+             */
+            container ipv4 {
+                description "IPv4 configuration";
+                
+                leaf enabled {
+                    type boolean;
+                    default true;
+                    description "Enable IPv4 on this interface";
+                }
+
+                uses ipv4-address-config;
+            }
+
+            /*
+             * IPv6 Configuration
+             */
+            container ipv6 {
+                description "IPv6 configuration";
+                
+                leaf enabled {
+                    type boolean;
+                    default false;
+                    description "Enable IPv6 on this interface";
+                }
+
+                uses ipv6-address-config;
+            }
+
+            /*
+             * Statistics
+             */
+            container statistics {
+                config false;
+                description "Interface statistics";
+                uses interface-statistics;
+            }
+        }
+    }
+
+    /*
+     * RPCs
+     */
+    rpc clear-interface-statistics {
+        description "Clear statistics for an interface";
+        input {
+            leaf interface-name {
+                type interface-ref;
+                mandatory true;
+                description "Name of interface to clear statistics";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+                description "true if successful";
+            }
+            leaf message {
+                type string;
+                description "Result message";
+            }
+        }
+    }
+
+    rpc create-loopback {
+        description "Create a new loopback interface";
+        input {
+            leaf mac-address {
+                type string {
+                    pattern '[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}';
+                }
+                description "Optional MAC address for loopback";
+            }
+        }
+        output {
+            leaf interface-name {
+                type string;
+                description "Created interface name";
+            }
+            leaf sw-if-index {
+                type if-index;
+                description "VPP sw_if_index of created interface";
+            }
+        }
+    }
+
+    rpc delete-loopback {
+        description "Delete a loopback interface";
+        input {
+            leaf interface-name {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "Name of loopback to delete";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+                description "true if successful";
+            }
+        }
+    }
+
+    rpc create-sub-interface {
+        description "Create a VLAN sub-interface";
+        input {
+            leaf parent-interface {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "Parent interface name";
+            }
+            leaf vlan-id {
+                type uint16 {
+                    range "1..4094";
+                }
+                mandatory true;
+                description "VLAN ID for the sub-interface";
+            }
+            leaf sub-id {
+                type uint32;
+                description "Sub-interface ID (defaults to vlan-id if not specified)";
+            }
+        }
+        output {
+            leaf interface-name {
+                type string;
+                description "Created sub-interface name";
+            }
+            leaf sw-if-index {
+                type if-index;
+                description "VPP sw_if_index of created sub-interface";
+            }
+        }
+    }
+
+    rpc delete-sub-interface {
+        description "Delete a sub-interface";
+        input {
+            leaf interface-name {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "Name of sub-interface to delete";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+                description "true if successful";
+            }
+        }
+    }
+
+    rpc create-bond {
+        description "Create a bonding interface";
+        input {
+            leaf mode {
+                type enumeration {
+                    enum round-robin {
+                        description "Round-robin load balancing";
+                    }
+                    enum active-backup {
+                        description "Active-backup failover";
+                    }
+                    enum broadcast {
+                        description "Broadcast on all members";
+                    }
+                    enum lacp {
+                        description "LACP (802.3ad)";
+                    }
+                    enum xor {
+                        description "XOR load balancing";
+                    }
+                }
+                mandatory true;
+                description "Bonding mode";
+            }
+            leaf load-balance {
+                type enumeration {
+                    enum l2 {
+                        description "Layer 2 (MAC) hash";
+                    }
+                    enum l23 {
+                        description "Layer 2-3 (MAC+IP) hash";
+                    }
+                    enum l34 {
+                        description "Layer 3-4 (IP+Port) hash";
+                    }
+                }
+                description "Load balance method (for lacp/xor modes)";
+            }
+            leaf mac-address {
+                type string {
+                    pattern '[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}';
+                }
+                description "Optional MAC address for bond interface";
+            }
+            leaf bond-id {
+                type uint32;
+                description "Optional bond interface ID";
+            }
+        }
+        output {
+            leaf interface-name {
+                type string;
+                description "Created bond interface name (e.g., BondEthernet0)";
+            }
+            leaf sw-if-index {
+                type if-index;
+                description "VPP sw_if_index of created bond";
+            }
+        }
+    }
+
+    rpc delete-bond {
+        description "Delete a bonding interface";
+        input {
+            leaf interface-name {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "Name of bond interface to delete";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+                description "true if successful";
+            }
+        }
+    }
+
+    rpc bond-add-member {
+        description "Add a member interface to a bond";
+        input {
+            leaf bond-interface {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "Name of bond interface";
+            }
+            leaf member-interface {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "Name of member interface to add";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+                description "true if successful";
+            }
+        }
+    }
+
+    rpc bond-del-member {
+        description "Remove a member interface from a bond";
+        input {
+            leaf member-interface {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "Name of member interface to remove";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+                description "true if successful";
+            }
+        }
+    }
+
+    rpc lcp-create {
+        description "Create an LCP pair to mirror a VPP interface to Linux";
+        input {
+            leaf interface-name {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "VPP interface name to mirror";
+            }
+            leaf host-interface {
+                type string {
+                    length "1..15";
+                }
+                mandatory true;
+                description "Linux interface name to create (max 15 chars)";
+            }
+            leaf netns {
+                type string {
+                    length "1..64";
+                }
+                description "Network namespace for the Linux interface";
+            }
+            leaf tun {
+                type boolean;
+                default false;
+                description "Create TUN device instead of TAP";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+                description "true if successful";
+            }
+        }
+    }
+
+    rpc lcp-delete {
+        description "Delete an LCP pair";
+        input {
+            leaf interface-name {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "VPP interface name of the LCP pair to delete";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+                description "true if successful";
+            }
+        }
+    }
+
+    rpc lcp-set-netns {
+        description "Set default LCP network namespace";
+        input {
+            leaf netns {
+                type string {
+                    length "1..64";
+                }
+                mandatory true;
+                description "Default network namespace for new LCP pairs";
+            }
+        }
+        output {
+            leaf result {
+                type boolean;
+                description "true if successful";
+            }
+        }
+    }
+}

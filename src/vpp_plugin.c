@@ -855,6 +855,228 @@ static int vpp_plugin_start(clixon_handle h) {
     clixon_err(OE_PLUGIN, 0, "Failed to connect to VPP - is VPP running?");
     clixon_log(h, LOG_WARNING,
                "%s: Will retry VPP connection on first operation", PLUGIN_NAME);
+  } else {
+    /* VPP connected - load startup configuration from vpp_config.xml */
+    clixon_log(h, LOG_NOTICE, "%s: Loading startup configuration", PLUGIN_NAME);
+
+    FILE *fp = fopen("/var/lib/clixon/vpp/vpp_config.xml", "r");
+    if (fp) {
+      char line[1024];
+      char bond_name[64] = {0}, mode[32] = {0}, lb[16] = {0},
+           members[512] = {0};
+      char lcp_vpp_if[128] = {0}, lcp_host_if[64] = {0}, lcp_netns[64] = {0};
+      int in_bond = 0, in_lcp = 0;
+
+      /* Parse bonds */
+      while (fgets(line, sizeof(line), fp)) {
+        char *start, *end;
+        if (strstr(line, "<bond>")) {
+          in_bond = 1;
+          bond_name[0] = mode[0] = lb[0] = members[0] = 0;
+        } else if (strstr(line, "</bond>") && in_bond) {
+          in_bond = 0;
+          if (bond_name[0]) {
+            int bond_id = (strncmp(bond_name, "BondEthernet", 12) == 0)
+                              ? atoi(bond_name + 12)
+                              : 0;
+            if (!mode[0])
+              strcpy(mode, "lacp");
+            if (!lb[0])
+              strcpy(lb, "l2");
+            clixon_log(h, LOG_NOTICE, "%s: Creating bond %s", PLUGIN_NAME,
+                       bond_name);
+            char cmd[256];
+            snprintf(cmd, sizeof(cmd),
+                     "create bond mode %s id %d load-balance %s", mode, bond_id,
+                     lb);
+            vpp_cli_exec(cmd);
+            snprintf(cmd, sizeof(cmd), "set interface state %s up", bond_name);
+            vpp_cli_exec(cmd);
+            if (members[0]) {
+              char *m = strtok(members, ",");
+              while (m) {
+                while (*m == ' ')
+                  m++;
+                if (*m) {
+                  snprintf(cmd, sizeof(cmd), "set interface state %s up", m);
+                  vpp_cli_exec(cmd);
+                  snprintf(cmd, sizeof(cmd), "bond add %s %s", bond_name, m);
+                  vpp_cli_exec(cmd);
+                }
+                m = strtok(NULL, ",");
+              }
+            }
+          }
+        } else if (in_bond) {
+          if ((start = strstr(line, "<name>")) &&
+              (end = strstr(line, "</name>"))) {
+            start += 6;
+            strncpy(bond_name, start, end - start);
+            bond_name[end - start] = 0;
+          } else if ((start = strstr(line, "<mode>")) &&
+                     (end = strstr(line, "</mode>"))) {
+            start += 6;
+            strncpy(mode, start, end - start);
+            mode[end - start] = 0;
+          } else if ((start = strstr(line, "<load-balance>")) &&
+                     (end = strstr(line, "</load-balance>"))) {
+            start += 14;
+            strncpy(lb, start, end - start);
+            lb[end - start] = 0;
+          } else if ((start = strstr(line, "<members>")) &&
+                     (end = strstr(line, "</members>"))) {
+            start += 9;
+            strncpy(members, start, end - start);
+            members[end - start] = 0;
+          }
+        }
+      }
+
+      /* Parse LCPs */
+      rewind(fp);
+      while (fgets(line, sizeof(line), fp)) {
+        char *start, *end;
+        if (strstr(line, "<lcp>")) {
+          in_lcp = 1;
+          lcp_vpp_if[0] = lcp_host_if[0] = lcp_netns[0] = 0;
+        } else if (strstr(line, "</lcp>") && in_lcp) {
+          in_lcp = 0;
+          if (lcp_vpp_if[0] && lcp_host_if[0]) {
+            clixon_log(h, LOG_NOTICE, "%s: Creating LCP %s -> %s", PLUGIN_NAME,
+                       lcp_vpp_if, lcp_host_if);
+            char cmd[256];
+            if (lcp_netns[0])
+              snprintf(cmd, sizeof(cmd), "lcp create %s host-if %s netns %s",
+                       lcp_vpp_if, lcp_host_if, lcp_netns);
+            else
+              snprintf(cmd, sizeof(cmd), "lcp create %s host-if %s", lcp_vpp_if,
+                       lcp_host_if);
+            vpp_cli_exec(cmd);
+          }
+        } else if (in_lcp) {
+          if ((start = strstr(line, "<vpp-interface>")) &&
+              (end = strstr(line, "</vpp-interface>"))) {
+            start += 15;
+            strncpy(lcp_vpp_if, start, end - start);
+            lcp_vpp_if[end - start] = 0;
+          } else if ((start = strstr(line, "<host-interface>")) &&
+                     (end = strstr(line, "</host-interface>"))) {
+            start += 16;
+            strncpy(lcp_host_if, start, end - start);
+            lcp_host_if[end - start] = 0;
+          } else if ((start = strstr(line, "<netns>")) &&
+                     (end = strstr(line, "</netns>"))) {
+            start += 7;
+            strncpy(lcp_netns, start, end - start);
+            lcp_netns[end - start] = 0;
+          }
+        }
+      }
+
+      /* Parse interfaces for subinterfaces and IP addresses */
+      rewind(fp);
+      char ifname[128] = {0}, ipv4[64] = {0}, ipv6[128] = {0};
+      int ipv4_prefix = 0, ipv6_prefix = 0, enabled = 0;
+      int in_if = 0, in_ipv4 = 0, in_ipv6 = 0;
+
+      while (fgets(line, sizeof(line), fp)) {
+        char *start, *end;
+        if (strstr(line, "<interface>") && !strstr(line, "vpp-interface")) {
+          in_if = 1;
+          ifname[0] = ipv4[0] = ipv6[0] = 0;
+          ipv4_prefix = ipv6_prefix = enabled = 0;
+        } else if (strstr(line, "</interface>") && in_if) {
+          in_if = 0;
+          if (ifname[0]) {
+            char cmd[256];
+            /* Create subinterface if it has a dot (VLAN) */
+            if (strchr(ifname, '.')) {
+              char parent[128];
+              int vlanid;
+              strncpy(parent, ifname, sizeof(parent) - 1);
+              char *dot = strchr(parent, '.');
+              if (dot) {
+                *dot = 0;
+                vlanid = atoi(dot + 1);
+                clixon_log(h, LOG_NOTICE,
+                           "%s: Creating subif %s (parent=%s, vlan=%d)",
+                           PLUGIN_NAME, ifname, parent, vlanid);
+                snprintf(cmd, sizeof(cmd),
+                         "create sub-interfaces %s %d dot1q %d exact-match",
+                         parent, vlanid, vlanid);
+                vpp_cli_exec(cmd);
+              }
+            }
+            /* Enable interface */
+            if (enabled) {
+              snprintf(cmd, sizeof(cmd), "set interface state %s up", ifname);
+              vpp_cli_exec(cmd);
+            }
+            /* Set IPv4 address */
+            if (ipv4[0] && ipv4_prefix > 0) {
+              clixon_log(h, LOG_NOTICE, "%s: Setting %s IPv4 %s/%d",
+                         PLUGIN_NAME, ifname, ipv4, ipv4_prefix);
+              snprintf(cmd, sizeof(cmd), "set interface ip address %s %s/%d",
+                       ifname, ipv4, ipv4_prefix);
+              vpp_cli_exec(cmd);
+            }
+            /* Set IPv6 address */
+            if (ipv6[0] && ipv6_prefix > 0) {
+              clixon_log(h, LOG_NOTICE, "%s: Setting %s IPv6 %s/%d",
+                         PLUGIN_NAME, ifname, ipv6, ipv6_prefix);
+              snprintf(cmd, sizeof(cmd), "set interface ip address %s %s/%d",
+                       ifname, ipv6, ipv6_prefix);
+              vpp_cli_exec(cmd);
+            }
+          }
+        } else if (in_if) {
+          if (strstr(line, "<ipv4-address>"))
+            in_ipv4 = 1;
+          else if (strstr(line, "</ipv4-address>"))
+            in_ipv4 = 0;
+          else if (strstr(line, "<ipv6-address>"))
+            in_ipv6 = 1;
+          else if (strstr(line, "</ipv6-address>"))
+            in_ipv6 = 0;
+          else if ((start = strstr(line, "<name>")) &&
+                   (end = strstr(line, "</name>")) && !in_ipv4 && !in_ipv6) {
+            start += 6;
+            strncpy(ifname, start, end - start);
+            ifname[end - start] = 0;
+          } else if ((start = strstr(line, "<enabled>")) &&
+                     (end = strstr(line, "</enabled>"))) {
+            start += 9;
+            enabled = (strncmp(start, "true", 4) == 0) ? 1 : 0;
+          } else if (in_ipv4) {
+            if ((start = strstr(line, "<address>")) &&
+                (end = strstr(line, "</address>"))) {
+              start += 9;
+              strncpy(ipv4, start, end - start);
+              ipv4[end - start] = 0;
+            } else if ((start = strstr(line, "<prefix-length>")) &&
+                       (end = strstr(line, "</prefix-length>"))) {
+              start += 15;
+              ipv4_prefix = atoi(start);
+            }
+          } else if (in_ipv6) {
+            if ((start = strstr(line, "<address>")) &&
+                (end = strstr(line, "</address>"))) {
+              start += 9;
+              strncpy(ipv6, start, end - start);
+              ipv6[end - start] = 0;
+            } else if ((start = strstr(line, "<prefix-length>")) &&
+                       (end = strstr(line, "</prefix-length>"))) {
+              start += 15;
+              ipv6_prefix = atoi(start);
+            }
+          }
+        }
+      }
+
+      fclose(fp);
+      clixon_log(h, LOG_NOTICE, "%s: Startup configuration applied",
+                 PLUGIN_NAME);
+    }
   }
 
   return 0;

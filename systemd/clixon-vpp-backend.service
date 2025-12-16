@@ -1,0 +1,21 @@
+[Unit]
+Description=Clixon VPP Backend Service
+After=network.target vpp.service
+Requires=vpp.service
+BindsTo=vpp.service
+PartOf=vpp.service
+
+[Service]
+Type=forking
+# Wait for VPP to be fully ready (up to 90 seconds for slow startups)
+ExecStartPre=/bin/bash -c 'echo "Waiting for VPP to be ready..."; for i in $(seq 1 90); do vppctl show version >/dev/null 2>&1 && echo "VPP ready after $i seconds" && exit 0; sleep 1; done; echo "VPP not ready after 90s"; exit 1'
+ExecStart=/usr/local/sbin/clixon_backend -f /etc/clixon/clixon-vpp.xml -P /var/run/clixon-vpp.pid
+PIDFile=/var/run/clixon-vpp.pid
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

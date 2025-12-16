@@ -816,6 +816,47 @@ int cli_expand_bonds(void *h, char *name, cvec *cvv, cvec *argv, cvec *commands,
   return 0;
 }
 
+/* Expand loopback interfaces */
+int cli_expand_loopback(void *h, char *name, cvec *cvv, cvec *argv,
+                        cvec *commands, cvec *helptexts) {
+  (void)h;
+  (void)name;
+  (void)cvv;
+  (void)argv;
+
+  char output[8192];
+
+  if (vpp_exec("show interface", output, sizeof(output)) == 0) {
+    char *saveptr = NULL;
+    char *line = strtok_r(output, "\r\n", &saveptr);
+
+    /* Skip header */
+    if (line)
+      line = strtok_r(NULL, "\r\n", &saveptr);
+
+    while (line) {
+      char ifname[64];
+      int idx;
+      char state[16];
+
+      if (sscanf(line, "%63s %d %15s", ifname, &idx, state) >= 2) {
+        /* Include loopback interfaces (start with "loop") */
+        if (strncmp(ifname, "loop", 4) == 0) {
+          cg_var *cv = cvec_add(commands, CGV_STRING);
+          if (cv)
+            cv_string_set(cv, ifname);
+          cv = cvec_add(helptexts, CGV_STRING);
+          if (cv)
+            cv_string_set(cv, state);
+        }
+      }
+      line = strtok_r(NULL, "\r\n", &saveptr);
+    }
+  }
+
+  return 0;
+}
+
 /* Expand sub-interfaces (vlan) */
 int cli_expand_subifs(void *h, char *name, cvec *cvv, cvec *argv,
                       cvec *commands, cvec *helptexts) {
@@ -902,10 +943,12 @@ int cli_interface_select(clixon_handle h, cvec *cvv, cvec *argv) {
   (void)h;
   (void)argv;
 
-  /* Try both ifname and bondname */
+  /* Try ifname, bondname, or loopname */
   cg_var *cv = cvec_find(cvv, "ifname");
   if (!cv)
     cv = cvec_find(cvv, "bondname");
+  if (!cv)
+    cv = cvec_find(cvv, "loopname");
   if (!cv) {
     fprintf(stderr, "Error: Interface name required\n");
     return -1;
@@ -1385,19 +1428,49 @@ int cli_create_loopback(clixon_handle h, cvec *cvv, cvec *argv) {
   (void)cvv;
   (void)argv;
 
-  char output[1024];
+  char loopback_name[128];
 
-  if (vpp_exec("create loopback interface", output, sizeof(output)) == 0) {
-    char *newline = strchr(output, '\n');
-    if (newline)
-      *newline = '\0';
-
-    strncpy(current_interface, output, sizeof(current_interface) - 1);
+  if (vpp_cli_create_loopback(loopback_name, sizeof(loopback_name)) == 0) {
+    strncpy(current_interface, loopback_name, sizeof(current_interface) - 1);
     fprintf(stdout, "Created: %s\n", current_interface);
+    /* Save loopback config */
+    ds_save_interface(h, current_interface, NULL, NULL, NULL, 0, NULL, 0);
+    CONFIG_CHANGED();
     return 0;
   }
 
-  fprintf(stderr, "Failed: %s\n", output);
+  fprintf(stderr, "Failed to create loopback\n");
+  return -1;
+}
+
+/* Create loopback with specific instance number */
+int cli_create_loopback_instance(clixon_handle h, cvec *cvv, cvec *argv) {
+  (void)h;
+  (void)argv;
+
+  cg_var *cv = cvec_find(cvv, "instance");
+  if (!cv) {
+    fprintf(stderr, "Error: Instance number required\n");
+    return -1;
+  }
+
+  int instance = cv_uint32_get(cv);
+  char cmd[256];
+  char output[4096];
+
+  snprintf(cmd, sizeof(cmd), "create loopback interface instance %d", instance);
+
+  if (vpp_exec(cmd, output, sizeof(output)) == 0) {
+    snprintf(current_interface, sizeof(current_interface), "loop%d", instance);
+    fprintf(stdout, "Created: %s\n", current_interface);
+    /* Save loopback config */
+    ds_save_interface(h, current_interface, NULL, NULL, NULL, 0, NULL, 0);
+    CONFIG_CHANGED();
+    return 0;
+  }
+
+  fprintf(stderr, "Failed to create loopback instance %d: %s\n", instance,
+          output);
   return -1;
 }
 
@@ -1955,6 +2028,45 @@ static void ds_sync_bonds_from_vpp(void) {
       pending_bonds = bcfg;
     }
   }
+
+  /* Get members for each bond */
+  char output[8192];
+  if (vpp_exec("show bond details", output, sizeof(output)) == 0) {
+    bond_config_t *bcfg = NULL;
+    char *saveptr = NULL;
+    char *line = strtok_r(output, "\r\n", &saveptr);
+
+    while (line) {
+      char bondname[64];
+      /* Check for bond name line */
+      if (sscanf(line, "%63s", bondname) == 1 &&
+          strncmp(bondname, "BondEthernet", 12) == 0) {
+        /* Find this bond in our list */
+        bcfg = pending_bonds;
+        while (bcfg) {
+          if (strcmp(bcfg->name, bondname) == 0)
+            break;
+          bcfg = bcfg->next;
+        }
+      }
+      /* Check for member lines (indented with spaces, starts with interface
+         name) */
+      else if (bcfg && line[0] == ' ' && line[1] == ' ' && line[2] == ' ' &&
+               line[3] == ' ' &&
+               (strstr(line, "Ethernet") || strstr(line, "Gigabit"))) {
+        char member[64];
+        if (sscanf(line, " %63s", member) == 1 && strstr(member, "Ethernet")) {
+          if (bcfg->members[0]) {
+            strncat(bcfg->members, ",",
+                    sizeof(bcfg->members) - strlen(bcfg->members) - 1);
+          }
+          strncat(bcfg->members, member,
+                  sizeof(bcfg->members) - strlen(bcfg->members) - 1);
+        }
+      }
+      line = strtok_r(NULL, "\r\n", &saveptr);
+    }
+  }
 }
 
 /* Helper: Sync LCPs from VPP using API */
@@ -1989,22 +2101,21 @@ static void ds_sync_lcps_from_vpp(void) {
   char *saveptr = NULL;
   char *line = strtok_r(output, "\r\n", &saveptr);
 
-  if (line)
-    line = strtok_r(NULL, "\r\n", &saveptr);
-
   while (line) {
-    char itf_pair[32], host_if[64], vpp_if[128], netns[64];
-    int phy_sw, host_sw;
+    /* Format: itf-pair: [N] vpp_if tap_if host_if idx type tap netns name */
+    if (strncmp(line, "itf-pair:", 9) == 0) {
+      int idx, host_sw;
+      char vpp_if[128], tap_if[64], host_if[64], type[16], netns[64];
 
-    if (sscanf(line, "%31s %63s %d %127s %d %63s", itf_pair, host_if, &phy_sw,
-               vpp_if, &host_sw, netns) >= 5) {
-      if (strcmp(itf_pair, "itf-pair") != 0) {
+      /* Parse: itf-pair: [0] BondEthernet10 tap4096 bond10 11 type tap netns
+       * dataplane */
+      if (sscanf(line, "itf-pair: [%d] %127s %63s %63s %d type %15s netns %63s",
+                 &idx, vpp_if, tap_if, host_if, &host_sw, type, netns) >= 6) {
         lcp_config_t *lcfg = calloc(1, sizeof(lcp_config_t));
         if (lcfg) {
           strncpy(lcfg->vpp_if, vpp_if, sizeof(lcfg->vpp_if) - 1);
           strncpy(lcfg->host_if, host_if, sizeof(lcfg->host_if) - 1);
-          if (strcmp(netns, "-") != 0)
-            strncpy(lcfg->netns, netns, sizeof(lcfg->netns) - 1);
+          strncpy(lcfg->netns, netns, sizeof(lcfg->netns) - 1);
           lcfg->next = pending_lcps;
           pending_lcps = lcfg;
         }
@@ -2035,9 +2146,10 @@ static void ds_sync_interfaces_from_vpp(void) {
     char state[16];
 
     if (sscanf(line, "%127s %d %15s", ifname, &idx, state) >= 2) {
-      /* Skip local0, loop, tap interfaces without LCP */
-      if (strcmp(ifname, "local0") != 0 && strncmp(ifname, "loop", 4) != 0 &&
-          (strstr(ifname, "Ethernet") || strstr(ifname, "Bond"))) {
+      /* Skip local0, tap interfaces without LCP */
+      if (strcmp(ifname, "local0") != 0 &&
+          (strstr(ifname, "Ethernet") || strstr(ifname, "Bond") ||
+           strncmp(ifname, "loop", 4) == 0)) {
 
         pending_config_t *cfg = calloc(1, sizeof(pending_config_t));
         if (cfg) {
@@ -2085,27 +2197,132 @@ static void ds_sync_interfaces_from_vpp(void) {
     }
     cfg = cfg->next;
   }
+
+  /* Get MTU for each interface */
+  cfg = pending_interfaces;
+  while (cfg) {
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "show hardware-interfaces %s", cfg->ifname);
+
+    if (vpp_exec(cmd, output, sizeof(output)) == 0) {
+      /* Parse MTU from output - look for "mtu XXXX" */
+      char *mtu_str = strstr(output, "Ethernet address");
+      if (mtu_str) {
+        /* Skip to next line and look for link mtu */
+        mtu_str = strstr(output, "link mtu");
+        if (!mtu_str)
+          mtu_str = strstr(output, "mtu ");
+        if (mtu_str) {
+          int mtu_val;
+          if (sscanf(mtu_str, "link mtu %d", &mtu_val) == 1 ||
+              sscanf(mtu_str, "mtu %d", &mtu_val) == 1) {
+            if (mtu_val > 0 && mtu_val != 9000) { /* Skip default MTU */
+              snprintf(cfg->mtu, sizeof(cfg->mtu), "%d", mtu_val);
+            }
+          }
+        }
+      }
+    }
+    cfg = cfg->next;
+  }
 }
 
 int cli_vpp_commit(clixon_handle h, cvec *cvv, cvec *argv) {
-  (void)h;
   (void)cvv;
   (void)argv;
 
-  /* Clear old pending data and sync from VPP running state only */
+  int ret = 0;
+  cbuf *cb = NULL;
+  cxobj *xtop = NULL;
+  cxobj *xerr = NULL;
+
+  /* Clear old pending data and sync from VPP running state */
   ds_clear_pending();
   ds_sync_interfaces_from_vpp();
   ds_sync_bonds_from_vpp();
   ds_sync_lcps_from_vpp();
 
-  int ret = ds_write_config_file();
+  /* Also write to backup file for reference */
+  ds_write_config_file();
 
-  if (ret == 0) {
-    config_modified = 0;
-    fprintf(stdout, "Configuration committed to %s\n", VPP_CONFIG_FILE);
-  } else {
-    fprintf(stderr, "Failed to commit configuration.\n");
+  /* Build XML config from pending data for Clixon datastore */
+  cb = cbuf_new();
+  if (!cb) {
+    fprintf(stderr, "Memory allocation error\n");
+    return -1;
   }
+
+  /* Build interfaces XML */
+  cprintf(cb, "<config>");
+  cprintf(cb, "<interfaces xmlns=\"%s\">", VPP_INTERFACES_NS);
+
+  pending_config_t *cfg = pending_interfaces;
+  while (cfg) {
+    cprintf(cb, "<interface><name>%s</name>", cfg->ifname);
+    if (cfg->enabled[0]) {
+      cprintf(cb, "<enabled>%s</enabled>", cfg->enabled);
+    }
+    if (cfg->mtu[0]) {
+      cprintf(cb, "<mtu>%s</mtu>", cfg->mtu);
+    }
+    if (cfg->ipv4_addr[0] && cfg->ipv4_prefix > 0) {
+      cprintf(cb,
+              "<ipv4><address><ip>%s</ip><prefix-length>%d</prefix-length></"
+              "address></ipv4>",
+              cfg->ipv4_addr, cfg->ipv4_prefix);
+    }
+    if (cfg->ipv6_addr[0] && cfg->ipv6_prefix > 0) {
+      cprintf(cb,
+              "<ipv6><address><ip>%s</ip><prefix-length>%d</prefix-length></"
+              "address></ipv6>",
+              cfg->ipv6_addr, cfg->ipv6_prefix);
+    }
+    cprintf(cb, "</interface>");
+    cfg = cfg->next;
+  }
+  cprintf(cb, "</interfaces>");
+  cprintf(cb, "</config>");
+
+  /* Parse XML */
+  if (clixon_xml_parse_string(cbuf_get(cb), YB_NONE, NULL, &xtop, &xerr) < 0) {
+    fprintf(stderr, "Failed to parse config XML\n");
+    ret = -1;
+    goto done;
+  }
+
+  /* Commit via Clixon: edit-config to candidate, then commit */
+  /* This triggers the backend plugin's ca_trans_commit */
+  if (clicon_rpc_edit_config(h, "candidate", OP_REPLACE, cbuf_get(cb)) < 0) {
+    fprintf(stderr, "Failed to edit candidate config\n");
+    ret = -1;
+    goto done;
+  }
+
+  /* Commit candidate to running */
+  /* Args: h, confirmed, cancel, timeout, persist, persist_id */
+  if (clicon_rpc_commit(h, 0, 0, 0, NULL, NULL) < 0) {
+    fprintf(stderr, "Failed to commit to running\n");
+    ret = -1;
+    goto done;
+  }
+
+  /* Copy running to startup for persistence */
+  if (clicon_rpc_copy_config(h, "running", "startup") < 0) {
+    fprintf(stderr,
+            "Warning: Failed to save to startup (persistence may not work)\n");
+    /* Don't fail - commit already succeeded */
+  }
+
+  config_modified = 0;
+  fprintf(stdout, "Configuration committed to Clixon datastore\n");
+
+done:
+  if (cb)
+    cbuf_free(cb);
+  if (xtop)
+    xml_free(xtop);
+  if (xerr)
+    xml_free(xerr);
 
   return ret;
 }
@@ -2846,6 +3063,217 @@ int cli_show_ip_interface(clixon_handle h, cvec *cvv, cvec *argv) {
 /*=============================================================
  * PLUGIN INIT
  *=============================================================*/
+
+/* Show full running config including LCPs */
+int cli_show_running_config_full(clixon_handle h, cvec *cvv, cvec *argv) {
+  (void)h;
+  (void)cvv;
+  (void)argv;
+
+  /* Read and display full config from vpp_config.xml */
+  FILE *fp = fopen("/var/lib/clixon/vpp/vpp_config.xml", "r");
+  if (!fp) {
+    fprintf(stderr, "Config file not found\n");
+    return -1;
+  }
+
+  char line[1024];
+  int in_if = 0, in_bond = 0, in_lcp = 0, in_ipv4 = 0, in_ipv6 = 0;
+  int has_ifs = 0, has_bonds = 0, has_lcps = 0;
+  char ifname[128], enabled[8], mtu[16], ipv4[64], ipv6[128];
+  int ipv4_prefix = 0, ipv6_prefix = 0;
+  char bond_name[64], mode[32], lb[16], members[512];
+  char lcp_vpp[128], lcp_host[64], lcp_netns[64];
+
+  /* First pass: check for sections */
+  while (fgets(line, sizeof(line), fp)) {
+    if (strstr(line, "<interfaces"))
+      has_ifs = 1;
+    if (strstr(line, "<bonds"))
+      has_bonds = 1;
+    if (strstr(line, "<lcps"))
+      has_lcps = 1;
+  }
+
+  rewind(fp);
+
+  /* Print interfaces */
+  if (has_ifs) {
+    fprintf(stdout, "vpp-interfaces:interfaces {\n");
+    ifname[0] = enabled[0] = mtu[0] = ipv4[0] = ipv6[0] = 0;
+    ipv4_prefix = ipv6_prefix = 0;
+
+    while (fgets(line, sizeof(line), fp)) {
+      if (strstr(line, "<interface>") && !strstr(line, "vpp-interface")) {
+        in_if = 1;
+        ifname[0] = enabled[0] = mtu[0] = ipv4[0] = ipv6[0] = 0;
+        ipv4_prefix = ipv6_prefix = 0;
+      } else if (strstr(line, "</interface>") && in_if) {
+        in_if = 0;
+        if (ifname[0]) {
+          fprintf(stdout, "   interface %s {\n", ifname);
+          if (enabled[0] && strcmp(enabled, "true") == 0)
+            fprintf(stdout, "      enabled true;\n");
+          if (mtu[0])
+            fprintf(stdout, "      mtu %s;\n", mtu);
+          if (ipv4[0] && ipv4_prefix > 0) {
+            fprintf(stdout,
+                    "      ipv4 {\n         address %s {\n            "
+                    "prefix-length %d;\n         }\n      }\n",
+                    ipv4, ipv4_prefix);
+          }
+          if (ipv6[0] && ipv6_prefix > 0) {
+            fprintf(stdout,
+                    "      ipv6 {\n         address %s {\n            "
+                    "prefix-length %d;\n         }\n      }\n",
+                    ipv6, ipv6_prefix);
+          }
+          fprintf(stdout, "   }\n");
+        }
+      } else if (in_if) {
+        char *s, *e;
+        if (strstr(line, "<ipv4-address>"))
+          in_ipv4 = 1;
+        else if (strstr(line, "</ipv4-address>"))
+          in_ipv4 = 0;
+        else if (strstr(line, "<ipv6-address>"))
+          in_ipv6 = 1;
+        else if (strstr(line, "</ipv6-address>"))
+          in_ipv6 = 0;
+        else if (!in_ipv4 && !in_ipv6 && (s = strstr(line, "<name>")) &&
+                 (e = strstr(line, "</name>"))) {
+          s += 6;
+          strncpy(ifname, s, e - s);
+          ifname[e - s] = 0;
+        } else if ((s = strstr(line, "<enabled>")) &&
+                   (e = strstr(line, "</enabled>"))) {
+          s += 9;
+          strncpy(enabled, s, e - s);
+          enabled[e - s] = 0;
+        } else if ((s = strstr(line, "<mtu>")) &&
+                   (e = strstr(line, "</mtu>"))) {
+          s += 5;
+          strncpy(mtu, s, e - s);
+          mtu[e - s] = 0;
+        } else if (in_ipv4 && (s = strstr(line, "<address>")) &&
+                   (e = strstr(line, "</address>"))) {
+          s += 9;
+          strncpy(ipv4, s, e - s);
+          ipv4[e - s] = 0;
+        } else if (in_ipv4 && (s = strstr(line, "<prefix-length>")) &&
+                   (e = strstr(line, "</prefix-length>"))) {
+          s += 15;
+          ipv4_prefix = atoi(s);
+        } else if (in_ipv6 && (s = strstr(line, "<address>")) &&
+                   (e = strstr(line, "</address>"))) {
+          s += 9;
+          strncpy(ipv6, s, e - s);
+          ipv6[e - s] = 0;
+        } else if (in_ipv6 && (s = strstr(line, "<prefix-length>")) &&
+                   (e = strstr(line, "</prefix-length>"))) {
+          s += 15;
+          ipv6_prefix = atoi(s);
+        }
+      }
+    }
+    fprintf(stdout, "}\n");
+  }
+
+  rewind(fp);
+
+  /* Print bonds */
+  if (has_bonds) {
+    fprintf(stdout, "\nvpp-bonds:bonds {\n");
+    bond_name[0] = mode[0] = lb[0] = members[0] = 0;
+    while (fgets(line, sizeof(line), fp)) {
+      if (strstr(line, "<bond>")) {
+        in_bond = 1;
+        bond_name[0] = mode[0] = lb[0] = members[0] = 0;
+      } else if (strstr(line, "</bond>") && in_bond) {
+        in_bond = 0;
+        if (bond_name[0]) {
+          fprintf(stdout, "   bond %s {\n", bond_name);
+          if (mode[0])
+            fprintf(stdout, "      mode %s;\n", mode);
+          if (lb[0])
+            fprintf(stdout, "      load-balance %s;\n", lb);
+          if (members[0])
+            fprintf(stdout, "      members %s;\n", members);
+          fprintf(stdout, "   }\n");
+        }
+      } else if (in_bond) {
+        char *s, *e;
+        if ((s = strstr(line, "<name>")) && (e = strstr(line, "</name>"))) {
+          s += 6;
+          strncpy(bond_name, s, e - s);
+          bond_name[e - s] = 0;
+        } else if ((s = strstr(line, "<mode>")) &&
+                   (e = strstr(line, "</mode>"))) {
+          s += 6;
+          strncpy(mode, s, e - s);
+          mode[e - s] = 0;
+        } else if ((s = strstr(line, "<load-balance>")) &&
+                   (e = strstr(line, "</load-balance>"))) {
+          s += 14;
+          strncpy(lb, s, e - s);
+          lb[e - s] = 0;
+        } else if ((s = strstr(line, "<members>")) &&
+                   (e = strstr(line, "</members>"))) {
+          s += 9;
+          strncpy(members, s, e - s);
+          members[e - s] = 0;
+        }
+      }
+    }
+    fprintf(stdout, "}\n");
+  }
+
+  rewind(fp);
+
+  /* Print LCPs */
+  if (has_lcps) {
+    fprintf(stdout, "\nvpp-lcp:lcps {\n");
+    lcp_vpp[0] = lcp_host[0] = lcp_netns[0] = 0;
+    while (fgets(line, sizeof(line), fp)) {
+      if (strstr(line, "<lcp>")) {
+        in_lcp = 1;
+        lcp_vpp[0] = lcp_host[0] = lcp_netns[0] = 0;
+      } else if (strstr(line, "</lcp>") && in_lcp) {
+        in_lcp = 0;
+        if (lcp_vpp[0]) {
+          fprintf(stdout, "   lcp %s {\n", lcp_vpp);
+          if (lcp_host[0])
+            fprintf(stdout, "      host-interface %s;\n", lcp_host);
+          if (lcp_netns[0])
+            fprintf(stdout, "      netns %s;\n", lcp_netns);
+          fprintf(stdout, "   }\n");
+        }
+      } else if (in_lcp) {
+        char *s, *e;
+        if ((s = strstr(line, "<vpp-interface>")) &&
+            (e = strstr(line, "</vpp-interface>"))) {
+          s += 15;
+          strncpy(lcp_vpp, s, e - s);
+          lcp_vpp[e - s] = 0;
+        } else if ((s = strstr(line, "<host-interface>")) &&
+                   (e = strstr(line, "</host-interface>"))) {
+          s += 16;
+          strncpy(lcp_host, s, e - s);
+          lcp_host[e - s] = 0;
+        } else if ((s = strstr(line, "<netns>")) &&
+                   (e = strstr(line, "</netns>"))) {
+          s += 7;
+          strncpy(lcp_netns, s, e - s);
+          lcp_netns[e - s] = 0;
+        }
+      }
+    }
+    fprintf(stdout, "}\n");
+  }
+
+  fclose(fp);
+  return 0;
+}
 
 clixon_plugin_api *clixon_plugin_init(clixon_handle h) {
   (void)h;
