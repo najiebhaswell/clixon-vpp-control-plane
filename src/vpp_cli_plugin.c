@@ -1884,28 +1884,42 @@ int cli_if_lcp(clixon_handle h, cvec *cvv, cvec *argv) {
   (void)h;
   (void)argv;
 
-  if (strlen(current_interface) == 0)
+  if (strlen(current_interface) == 0) {
+    fprintf(stderr, "Error: No interface selected\n");
     return -1;
+  }
 
   cg_var *cv = cvec_find(cvv, "hostif");
-  if (!cv)
+  if (!cv) {
+    fprintf(stderr, "Error: Host interface name required\n");
     return -1;
+  }
 
   const char *hostif = cv_string_get(cv);
   char cmd[256];
   char output[1024];
 
+  /* Try with default netns first */
   snprintf(cmd, sizeof(cmd), "lcp create %s host-if %s", current_interface,
            hostif);
 
   if (vpp_exec(cmd, output, sizeof(output)) == 0) {
+    /* Check if output contains error */
+    if (strstr(output, "failed") || strstr(output, "error") ||
+        strstr(output, "Error")) {
+      fprintf(stderr, "LCP creation failed: %s\n", output);
+      fprintf(stderr,
+              "Hint: Make sure interface is up and not already paired\n");
+      return -1;
+    }
     fprintf(stdout, "[%s] LCP -> %s\n", current_interface, hostif);
     /* Save LCP config */
     ds_save_lcp_config(current_interface, hostif, NULL);
     CONFIG_CHANGED();
     return 0;
   }
-  fprintf(stderr, "Failed: %s\n", output);
+
+  fprintf(stderr, "Failed to create LCP: %s\n", output);
   return -1;
 }
 
@@ -1914,14 +1928,18 @@ int cli_if_lcp_netns(clixon_handle h, cvec *cvv, cvec *argv) {
   (void)h;
   (void)argv;
 
-  if (strlen(current_interface) == 0)
+  if (strlen(current_interface) == 0) {
+    fprintf(stderr, "Error: No interface selected\n");
     return -1;
+  }
 
   cg_var *cv_host = cvec_find(cvv, "hostif");
   cg_var *cv_netns = cvec_find(cvv, "netns");
 
-  if (!cv_host || !cv_netns)
+  if (!cv_host || !cv_netns) {
+    fprintf(stderr, "Error: Host interface and netns required\n");
     return -1;
+  }
 
   const char *hostif = cv_string_get(cv_host);
   const char *netns = cv_string_get(cv_netns);
@@ -1933,6 +1951,14 @@ int cli_if_lcp_netns(clixon_handle h, cvec *cvv, cvec *argv) {
            current_interface, hostif, netns);
 
   if (vpp_exec(cmd, output, sizeof(output)) == 0) {
+    /* Check if output contains error */
+    if (strstr(output, "failed") || strstr(output, "error") ||
+        strstr(output, "Error")) {
+      fprintf(stderr, "LCP creation failed: %s\n", output);
+      fprintf(stderr, "Hint: Make sure netns '%s' exists and interface is up\n",
+              netns);
+      return -1;
+    }
     fprintf(stdout, "[%s] LCP -> %s (netns: %s)\n", current_interface, hostif,
             netns);
     /* Save LCP config with netns */
@@ -1940,7 +1966,8 @@ int cli_if_lcp_netns(clixon_handle h, cvec *cvv, cvec *argv) {
     CONFIG_CHANGED();
     return 0;
   }
-  fprintf(stderr, "Failed: %s\n", output);
+
+  fprintf(stderr, "Failed to create LCP: %s\n", output);
   return -1;
 }
 
