@@ -7,13 +7,14 @@ A YANG-based control plane for VPP (Vector Packet Processing) using [Clixon](htt
 ## Overview
 
 This project implements a management plane for **VPP 25.06** using Clixon, providing:
-- **NETCONF** interface for network management (RFC 6241)
+- **CLI** for interactive configuration (Cisco-like syntax)
 - **RESTCONF** interface for REST API access (RFC 8040)
-- **CLI** for interactive configuration
+- **NETCONF** interface for network management (RFC 6241)
 - **YANG** data models for:
   - Interface management
   - **LCP** (Linux Control Plane) interface pairs
   - **Bonding/LACP** interfaces
+- **Configuration Persistence** - automatic restore after VPP restart
 
 ## Architecture
 
@@ -35,7 +36,7 @@ This project implements a management plane for **VPP 25.06** using Clixon, provi
 │              │   vpp_plugin.so     │                         │
 │              └──────────┬──────────┘                         │
 └─────────────────────────┼────────────────────────────────────┘
-                          │ VAPI (Shared Memory)
+                          │ VPP CLI Socket
 ┌─────────────────────────▼────────────────────────────────────┐
 │                       Data Plane                              │
 │              ┌─────────────────────┐                         │
@@ -44,122 +45,148 @@ This project implements a management plane for **VPP 25.06** using Clixon, provi
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## Project Structure
-
-```
-clixon-vpp-control-plane/
-├── README.md                    # This file
-├── Makefile                     # Build configuration
-├── config/
-│   └── clixon-vpp.xml          # Clixon configuration
-├── yang/
-│   ├── vpp-interfaces.yang     # Interface YANG model
-│   ├── vpp-lcp.yang            # LCP (Linux Control Plane) model
-│   └── vpp-bonding.yang        # Bonding/LACP model
-├── src/
-│   ├── vpp_plugin.c            # Main Clixon backend plugin
-│   ├── vpp_interface.c         # VPP interface operations
-│   ├── vpp_interface.h         # Interface operations header
-│   ├── vpp_connection.c        # VPP connection management
-│   └── vpp_connection.h        # Connection header
-├── scripts/
-│   ├── install-deps.sh         # Install CLIgen, Clixon, VPP
-│   └── start-services.sh       # Start/stop services
-├── doc/
-│   └── DEVELOPMENT.md          # Development guide
-└── reference/
-    └── tnsr-yang-models/       # Netgate TNSR YANG reference
-```
-
-## Prerequisites
-
-- **VPP 25.06** with development packages (`vpp-dev`)
-- **CLIgen** (CLI generator library)
-- **Clixon 6.x** or later
-- GCC/Clang compiler
-- Make, pkg-config
-
 ## Quick Start
 
-1. **Install dependencies:**
-   ```bash
-   sudo ./scripts/install-deps.sh
-   ```
-   This will install:
-   - CLIgen from https://github.com/clicon/cligen.git
-   - Clixon from https://github.com/clicon/clixon.git
-   - VPP development packages (optional)
+### Installation via .deb Package
 
-2. **Build the plugin:**
-   ```bash
-   make
-   ```
-
-3. **Install:**
-   ```bash
-   sudo make install
-   ```
-
-4. **Start services:**
-   ```bash
-   sudo ./scripts/start-services.sh start
-   ```
-
-## Supported Features
-
-### Interface Management (`vpp-interfaces.yang`)
-- [x] List interfaces
-- [x] Enable/disable interface (admin status)
-- [x] Set MTU
-- [x] Configure IPv4/IPv6 addresses
-- [x] View interface statistics
-- [x] Create/delete loopback interfaces
-- [ ] Create sub-interfaces
-- [ ] VLAN configuration
-
-### Linux Control Plane (`vpp-lcp.yang`)
-- [x] Create LCP interface pairs (VPP ↔ Linux TAP)
-- [x] Configure host interface names
-- [x] Network namespace support
-- [x] Auto-create option
-- [ ] Sync from Linux (Netlink)
-
-### Bonding/LACP (`vpp-bonding.yang`)
-- [x] Create bond interfaces
-- [x] Multiple bonding modes (round-robin, active-backup, XOR, broadcast, LACP)
-- [x] Load balancing algorithms (L2, L34, L23)
-- [x] Slave interface management
-- [x] LACP configuration (rate, system-priority)
-- [ ] LACP state monitoring
-
-## Usage Examples
-
-### CLI
 ```bash
-clixon_cli -f /etc/clixon/clixon-vpp.xml
+# Install the package
+sudo dpkg -i clixon-vpp_1.1.0_amd64.deb
+sudo apt-get install -f  # Fix dependencies if needed
 
-> show interfaces
-> configure
-# set interfaces interface GigabitEthernet0/8/0 enabled true
-# set interfaces interface GigabitEthernet0/8/0 mtu 1500
-# set interfaces interface GigabitEthernet0/8/0 ipv4 address 192.168.1.1/24
-# commit
+# Enable and start services
+sudo systemctl enable vpp clixon-vpp-backend
+sudo systemctl start vpp clixon-vpp-backend
+
+# Start CLI
+sudo cli
 ```
 
-### RESTCONF
+### Building from Source
+
 ```bash
-# Get all interfaces
+# Install dependencies
+sudo ./scripts/install-deps.sh
+
+# Build
+make
+
+# Install
+sudo make install
+
+# Build .deb package
+./build-deb-from-source.sh
+```
+
+## CLI Usage
+
+```bash
+sudo cli
+
+# Show commands
+debian# show running-config
+debian# show interface brief
+debian# show bond
+debian# show lcp
+
+# Enter configuration mode
+debian# configure terminal
+
+# Interface configuration
+debian(config)# interface ethernet HundredGigabitEthernet8a/0/0
+debian(config-if)# no shutdown
+debian(config-if)# ip address 192.168.1.1 24
+debian(config-if)# exit
+
+# Create loopback with instance
+debian(config)# interface loopback 10
+debian(config-if)# no shutdown
+debian(config-if)# ip address 10.0.0.1 32
+debian(config-if)# exit
+
+# Create Bond interface
+debian(config)# interface bonding 10 mode lacp load-balance l34
+debian(config-if)# member HundredGigabitEthernet8a/0/0
+debian(config-if)# no shutdown
+debian(config-if)# exit
+
+# Create VLAN sub-interface
+debian(config)# interface vlan BondEthernet10 100
+debian(config-if)# no shutdown
+debian(config-if)# ip address 192.168.100.1 24
+debian(config-if)# exit
+
+# Create LCP pair
+debian(config-if)# lcp host-if bond10
+
+# Commit and save
+debian(config)# commit
+debian(config)# end
+```
+
+## Features
+
+### Interface Management
+- ✅ Physical interfaces (enable/disable, MTU, IP addresses)
+- ✅ Loopback interfaces (with instance number)
+- ✅ VLAN sub-interfaces (dot1q)
+- ✅ IPv4 and IPv6 addresses
+- ✅ Interface completion (tab)
+
+### Bonding/LACP
+- ✅ Create bond interfaces with ID
+- ✅ Multiple modes (lacp, round-robin, active-backup, xor, broadcast)
+- ✅ Load balancing (l2, l23, l34)
+- ✅ Member interface management
+- ✅ Bond completion (tab)
+
+### Linux Control Plane (LCP)
+- ✅ Create LCP pairs (VPP ↔ Linux TAP)
+- ✅ Network namespace support
+- ✅ Auto-subinterface LCP
+
+### Configuration Persistence
+- ✅ Configuration saved to `/var/lib/clixon/vpp/vpp_config.xml`
+- ✅ Auto-restore after VPP restart
+- ✅ Auto-restore after VPP crash
+- ✅ Systemd integration
+
+### CLI Features
+- ✅ Cisco-like command syntax
+- ✅ Tab completion for interfaces, bonds, loopbacks
+- ✅ `show running-config` (includes interfaces, bonds, LCPs)
+- ✅ Uncommitted changes warning on `end`
+- ✅ Configuration validation
+
+## Configuration Persistence
+
+Configuration is automatically restored when:
+1. **VPP restarts** - Clixon backend re-applies config
+2. **VPP crashes** - Systemd restarts Clixon after VPP recovery
+
+### Systemd Services
+
+```bash
+# Backend service
+sudo systemctl status clixon-vpp-backend
+
+# RESTCONF service (optional)
+sudo systemctl status clixon-vpp-restconf
+
+# VPP drop-in for crash recovery
+cat /etc/systemd/system/vpp.service.d/restart-clixon.conf
+```
+
+## RESTCONF API
+
+```bash
+# Get all interfaces (STUB mode - returns sample data)
 curl http://localhost:8080/restconf/data/vpp-interfaces:interfaces
 
-# Enable an interface  
+# Enable an interface
 curl -X PATCH http://localhost:8080/restconf/data/vpp-interfaces:interfaces/interface=loop0 \
   -H "Content-Type: application/yang-data+json" \
   -d '{"enabled": true}'
-
-# Create LCP pair
-curl -X POST http://localhost:8080/restconf/data/vpp-lcp:lcp/interface-pairs \
-  -H "Content-Type: application/yang-data+json" \
-  -d '{"pair": {"phy-interface": "GigabitEthernet0/8/0", "host-interface": "eth0"}}'
 
 # Create bond interface
 curl -X POST http://localhost:8080/restconf/data/vpp-bonding:bonding/bond-interface \
@@ -167,29 +194,44 @@ curl -X POST http://localhost:8080/restconf/data/vpp-bonding:bonding/bond-interf
   -d '{"name": "BondEthernet0", "mode": "lacp", "load-balance": "l34"}'
 ```
 
-## Service Management
+## Project Structure
 
-```bash
-# Start all services
-sudo ./scripts/start-services.sh start
-
-# Check status
-sudo ./scripts/start-services.sh status
-
-# Stop services
-sudo ./scripts/start-services.sh stop
-
-# Start CLI
-sudo ./scripts/start-services.sh cli
+```
+clixon-vpp-control-plane/
+├── README.md                    # This file
+├── Makefile                     # Build configuration
+├── build-deb-from-source.sh     # Build .deb package
+├── config/
+│   └── clixon-vpp.xml          # Clixon configuration
+├── yang/
+│   ├── vpp-interfaces.yang     # Interface YANG model
+│   ├── vpp-lcp.yang            # LCP model
+│   └── vpp-bonding.yang        # Bonding/LACP model
+├── src/
+│   ├── vpp_plugin.c            # Backend plugin (config persistence)
+│   ├── vpp_cli_plugin.c        # CLI plugin (commands)
+│   ├── vpp_api.c               # VPP API functions
+│   ├── vpp_interface.c         # Interface operations
+│   └── vpp_connection.c        # VPP connection management
+├── cli/
+│   ├── base_mode.cli           # Exec mode commands
+│   ├── configure_mode.cli      # Config mode commands
+│   └── configure_if_mode.cli   # Interface config commands
+├── systemd/
+│   ├── clixon-vpp-backend.service
+│   ├── clixon-vpp-restconf.service
+│   └── vpp.service.d/restart-clixon.conf
+└── scripts/
+    └── vpp-config-loader.sh    # Config loader script
 ```
 
-## Development
+## Prerequisites
 
-See [doc/DEVELOPMENT.md](doc/DEVELOPMENT.md) for detailed development guide including:
-- Plugin architecture
-- VAPI usage examples
-- YANG model development
-- Debugging tips
+- **VPP 25.06** with development packages (`vpp-dev`)
+- **CLIgen** (CLI generator library)
+- **Clixon 6.x** or later
+- **libxml2-dev**, **libnghttp2-dev**
+- GCC/Clang compiler
 
 ## License
 
@@ -202,5 +244,3 @@ Apache License 2.0
 - [Clixon Documentation](https://clixon-docs.readthedocs.io/)
 - [VPP Documentation](https://fd.io/documentation/)
 - [Netgate TNSR YANG Models](https://github.com/Netgate/tnsr-yang-models)
-- [IETF YANG Interfaces Model (RFC 8343)](https://datatracker.ietf.org/doc/html/rfc8343)
-

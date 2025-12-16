@@ -1,2 +1,0 @@
-debian/clixon-vpp-backend.service /etc/systemd/system/
-debian/clixon-vpp-restconf.service /etc/systemd/system/
